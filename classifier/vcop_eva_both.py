@@ -12,6 +12,7 @@ _tokenizer = _Tokenizer()
 import dataset.incremental_dataloader
 
 from .utils import build_cosine_scheduler, cosine_loss
+import pdb
 import time
 
 class PromptLearner(nn.Module):
@@ -20,6 +21,7 @@ class PromptLearner(nn.Module):
         ctx_dim = clip_model.ln_final.weight.shape[0]
         dtype = clip_model.dtype
         self.clip_model = clip_model
+        # pdb.set_trace()
         self.args = args
         n_cls = len(class_names)
         self.dtype = dtype
@@ -33,18 +35,19 @@ class PromptLearner(nn.Module):
         self.text_prompt = text_prompt
         tokenized_prompts = torch.cat([tokenize(p) for p in prompts])
         self.tokenized_prompts = tokenized_prompts
+        # pdb.set_trace()
         with torch.no_grad():
-            embedding = clip_model.token_embedding(tokenized_prompts.cuda()).type(self.dtype)
-        self.register_buffer( 'token_prefix', embedding[:, :1, :])
-        self.register_buffer( 'token_suffix', embedding[:, 1+(n_ctx*self.args.text_prompt):,:])
+            embedding = clip_model.token_embedding(tokenized_prompts.cuda()).type(self.dtype) # 引入SOS EOS
+        self.register_buffer( 'token_prefix', embedding[:, :1, :]) # SOS, [n_cls, 1, ctx_dim]
+        self.register_buffer( 'token_suffix', embedding[:, 1+(n_ctx*self.args.text_prompt):,:]) # CLS, EOS, [n_cls, -1, ctx_dim]
 
         nc_prompts = [prompt_prefix+'.' ]
         nc_tokenized_prompts = torch.cat([tokenize(p) for p in nc_prompts])
         self.nc_tokenized_prompts = nc_tokenized_prompts
         with torch.no_grad():
             embedding = clip_model.token_embedding(nc_tokenized_prompts.cuda()).type(self.dtype)
-        self.register_buffer('nc_token_prefix', embedding[:, :1,:])
-        self.register_buffer('nc_token_suffix', embedding[:, 1+n_ctx:,:])
+        self.register_buffer('nc_token_prefix', embedding[:, :1,:]) # SOS, [n_cls, 1, ctx_dim]
+        self.register_buffer('nc_token_suffix', embedding[:, 1+n_ctx:,:]) # EOS, [n_cls, -1, ctx_dim]
 
         self.n_cls = n_cls 
         self.n_ctx = n_ctx 
@@ -61,20 +64,21 @@ class PromptLearner(nn.Module):
             tokenized_prompts = torch.cat([tokenize(p) for p in prompts])
             self.tokenized_prompts = tokenized_prompts
             with torch.no_grad():
-                embedding = self.clip_model.token_embedding(tokenized_prompts.cuda()).type(self.dtype)
+                embedding = self.clip_model.token_embedding(tokenized_prompts.cuda()).type(self.dtype) # 引入SOS EOS
             self.register_buffer( 'token_prefix', embedding[:, :1, :]) # SOS, [n_cls, 1, ctx_dim]
             self.register_buffer( 'token_suffix', embedding[:, 1+(self.n_ctx*self.args.text_prompt):,:]) # CLS, EOS, [n_cls, -1, ctx_dim]
             self.n_cls = len(test_class)
         batch = indices.shape[0]
         ctx=self.text_prompt[indices].view(batch, self.n_ctx*self.args.text_prompt, self.ctx_dim)
-        tokenized_prompts = self.tokenized_prompts.view(self.n_cls,-1)
+        tokenized_prompts = self.tokenized_prompts.view(self.n_cls,-1) #编码后的prompt 100，77
         n_cls = self.n_cls
 
         if self.prompt_pos == 2:
+            # pdb.set_trace()
             prefix = self.token_prefix.unsqueeze(0).repeat(batch,1,1,1)
             suffix = self.token_suffix.unsqueeze(0).repeat(batch,1,1,1)
             ctx = ctx.unsqueeze(1).repeat(1, n_cls, 1, 1)
-            prompts = torch.cat([prefix, ctx, suffix],dim=2)
+            prompts = torch.cat([prefix, ctx, suffix],dim=2) # SOS+可训练prompt+EOS  embedding
         elif self.prompt_pos == 1:
             prompts =[]
             half_n_ctx = self.n_ctx // 2
@@ -100,6 +104,8 @@ class PromptLearner(nn.Module):
                 prompts.append(prompt)
             prompts = torch.cat(prompts, dim=0)
 
+        # prompts = prompts.view(n_cls, -1, self.ctx_dim)
+        # pdb.set_trace()
         prompts = prompts.squeeze(2).view(batch*self.n_cls, -1, self.ctx_dim)
         tokenized_prompts = tokenized_prompts.unsqueeze(0).repeat(batch,1,1).view(batch*self.n_cls, -1)
         self.prompts = prompts
@@ -130,12 +136,14 @@ class TextEncoder(nn.Module):
         self.dtype = clip_model.dtype
 
     def forward(self, x, tokenized_prompts):
-        x = x + self.positional_embedding.type(self.dtype)
+        # pdb.set_trace()
+        # x.view(-1,)
+        x = x + self.positional_embedding.type(self.dtype) #position_embeding可训练
         x = x.permute(1, 0, 2)
         x = self.transformer(x)
         x = x.permute(1, 0, 2)
         x = self.ln_final(x).type(self.dtype)
-        x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection
+        x = x[torch.arange(x.shape[0]), tokenized_prompts.argmax(dim=-1)] @ self.text_projection # @ and
         return x
 
 
@@ -175,6 +183,7 @@ class CLIP(nn.Module):
             logit_scale = self.logit_scale.exp()
             text_features = text_features.view(image_features.shape[0], n_test, -1)
             image_features = image_features.unsqueeze(1)
+            # pdb.set_trace()
             logit_scale = self.logit_scale.exp()
             logits = logit_scale * (image_features * text_features).sum(-1)
             return logits
@@ -183,26 +192,30 @@ class CLIP(nn.Module):
             n_class = self.n_class
             probability = image_features @ self.text_key.t()
             _, indices = probability.topk(k=min(self.args.text_prompt, probability.shape[1]), dim=1, largest=True)
+            # pdb.set_trace()
             key_choose = self.text_key[indices]
             text_prompt, tokenized_prompts, nc_prompts, nc_tokenized_prompts = self.prompt_learner(indices)
             text_features = self.text_encoder(text_prompt,tokenized_prompts)
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            # pdb.set_trace()
             text_features = text_features.view(image_features.shape[0], n_class, -1)
             image_features = image_features.unsqueeze(1)
             logit_scale = self.logit_scale.exp()
             logits = logit_scale * (image_features * text_features).sum(-1)
+            # logits = logit_scale * image_features @ text_features.t()   #128*100
            
             nc_text_features = self.text_encoder(nc_prompts, nc_tokenized_prompts)
             nc_text_features = nc_text_features / nc_text_features.norm(dim=-1, keepdim=True)
             dis = nc_text_features @ nc_text_features.permute(1, 0)
+            # pdb.set_trace()
             loss_m = dis[~torch.eye(self.args.num_prompt, dtype=torch.bool, device='cuda')].abs().mean()
 
             return logits, image_features, key_choose, loss_m
 
 
-    @property
+    @property #变成属性
     def dtype(self):
-        return self.image_encoder.conv1.weight.dtype
+        return self.image_encoder.conv1.weight.dtype #return int/float
 
 
 class CoOp:
@@ -214,9 +227,9 @@ class CoOp:
         self.clip_model = clip_model
         self.use_grad_checkpoint = use_grad_checkpoint
         self.num_prompt = args.num_prompt
-        self.n_ctx = n_ctx
+        self.n_ctx = n_ctx # n_ctx 输入词数
         self.lr = args.lr*args.train_batch/20
-        self.wd = args.wd
+        self.wd = args.wd # wd ??
         self.epochs = args.epochs
         self.train_batch = args.train_batch 
         self.args = args
@@ -229,9 +242,11 @@ class CoOp:
         text_prompt = torch.empty(self.num_prompt, n_ctx, ctx_dim, dtype=self.dtype).cuda()
         nn.init.normal_(text_prompt, std=0.02)
         if  keep == True :
+            # pdb.set_trace()
             self.text_key = nn.Parameter(prev_key)
             self.text_prompt = nn.Parameter(prev_prompt)
         else:
+            # pdb.set_trace()
             self.text_key = nn.Parameter(text_key)
             self.text_prompt = nn.Parameter(text_prompt)
 
@@ -252,6 +267,7 @@ class CoOp:
             real_img_bsz = self.train_batch
 
         per_epoch_steps = len(train_loader)
+        # if ses == 0:
 
         self.init_model(class_names=data['class_names'], per_epoch_steps=per_epoch_steps,text_key=self.text_key, text_prompt=self.text_prompt)
 
@@ -260,7 +276,8 @@ class CoOp:
         for epoch in range(self.epochs):
             for idx, (x, y) in enumerate(train_loader):
                 
-                y = y - self.args.class_per_task * self.args.sess
+                # pdb.set_trace()
+                y = y - 10 * self.args.sess
                 lab_idx = y.cpu().numpy().tolist()
                 cur_iter_idx = epoch*per_epoch_steps+idx
                 self.cur_iter_idx = cur_iter_idx
@@ -272,8 +289,14 @@ class CoOp:
                 loss_k = cosine_loss(ima_feat,key_choose)
                 loss = loss_main + 0.5*loss_k + 0.1*loss_m
                 self.optimizer.zero_grad()
+                # pdb.set_trace()
                 loss.backward()
                 self.optimizer.step()
+                # print('Loss:',loss)
+                # pdb.set_trace()
+                # print(self.model.prompt_learner.text_prompt)
+                # print(self.model.text_key)
+
 
 
 
@@ -292,6 +315,8 @@ class CoOp:
         Other_params = [param for name, param in self.model.named_parameters() if 'text_key' in name]
         param_dict = [{'params': [p for p in self.model.prompt_learner.parameters() if p.requires_grad]}, 
                         {'params': Other_params}]
+        # pdb.set_trace()
+        # param_dict = [{'params': [p for p in self.parameters() if p.requires_grad]}]
 
         self.optimizer = torch.optim.SGD(param_dict, lr=self.lr, weight_decay=self.wd)
         self.scheduler = build_cosine_scheduler(
@@ -300,17 +325,17 @@ class CoOp:
             total_step=self.epochs*per_epoch_steps)
 
     @torch.no_grad()
-    def accuracy(self, loader, num_test, test_class, mean_per_class=False):
+    def accuracy(self, loader_1, loader_2, num_test, test_class, mean_per_class=False):
         if mean_per_class:
-            return self._accuracy_mpc(loader, num_test, test_class)
+            return self._accuracy_mpc(loader_1, loader_2, num_test, test_class)
         else:
-            return self._accuracy(loader, num_test, test_class)
+            return self._accuracy(loader_1, loader_2, num_test, test_class)
 
-    def _accuracy_mpc(self, loader, num_test, test_class):
+    def _accuracy_mpc(self, loader_1, loader_2, num_test, test_class):
         n_class = self.n_class
         acc_per_class = [0 for _ in range(n_class)]
         count_per_class = [0 for _ in range(n_class)]
-        for i, (x, y) in enumerate(loader):
+        for i, (x, y) in enumerate(loader_1):
             pred_y = self.inference(x.cuda())
             _, top_labels = pred_y.topk(1, dim=-1)
             for c in range(n_class):
@@ -320,19 +345,30 @@ class CoOp:
         acc = np.array(acc).mean()
         return acc
 
-    def _accuracy(self, loader, num_test, test_class):
+    def _accuracy(self, loader_1, loader_2, num_test, test_class):
         total_count=0
         acc_count =0
-        for i,(x, y) in enumerate(loader):
+        # pdb.set_trace()
+        for i,(x, y) in enumerate(loader_1):
             pred_y = self.inference(x.cuda(), num_test, test_class)
             _, top_labels = pred_y.topk(1, dim=-1)
             acc_count += (top_labels.view(-1)==y.cuda()).sum().cpu().numpy()
             total_count += y.shape[0]
+        if loader_2 != None:
+            pdb.set_trace()
+            for i,(x, y) in enumerate(loader_2):
+                pred_y = self.inference(x.cuda(), num_test, test_class)
+                _, top_labels = pred_y.topk(1, dim=-1)
+                acc_count += (top_labels.view(-1)==(y+100).cuda()).sum().cpu().numpy()
+                total_count += y.shape[0]
         acc = acc_count*1.0/total_count
         acc = acc.item()
         return acc
 
     @torch.no_grad()
     def inference(self,image, num_test, test_class):
+        self.n_class = len(test_class)
+        clip_model = deepcopy(self.clip_model)
+        self.model = CLIP(self.args, test_class, clip_model, self.text_key, self.text_prompt, self.n_ctx)
         logits = self.model(image, num_test, test_class, test=True)
         return logits.float().softmax(dim=-1)

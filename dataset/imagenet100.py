@@ -88,23 +88,38 @@ class imagenet100(ImageNet):
         ]
         
         
+    # new_classes = [
+    #     'American robin', 'Gila monster', 'eastern hog-nosed snake', 'garter snake', 'green mamba', 
+    #     'European garden spider', 'lorikeet', 'goose', 'rock crab', 'fiddler crab', 'American lobster', 
+    #     'little blue heron', 'American coot', 'Chihuahua', 'Shih Tzu', 'Papillon', 'toy terrier', 
+    #     'Treeing Walker Coonhound', 'English foxhound', 'borzoi', 'Saluki', 'American Staffordshire Terrier', 
+    #     'Chesapeake Bay Retriever', 'Vizsla', 'Kuvasz', 'Komondor', 'Rottweiler', 'Dobermann', 'Boxer', 
+    #     'Great Dane', 'Standard Poodle', 'Mexican hairless dog (xoloitzcuintli)', 'coyote', 'African wild dog', 
+    #     'red fox','tabby cat', 'meerkat', 'dung beetle', 'stick insect', 'leafhopper', 'hare', 'wild boar', 
+    #     'gibbon', 'langur', 'ambulance', 'baluster handrail', 'bassinet', 'boathouse', 'poke bonnet', 
+    #     'bottle cap', 'car wheel', 'bell or wind chime', 'movie theater', 'cocktail shaker', 'computer keyboard', 
+    #     'Dutch oven', 'football helmet', 'gas mask or respirator', 'hard disk drive', 'harmonica', 'honeycomb', 
+    #     'clothes iron', 'jeans', 'lampshade', 'laptop computer', 'milk can', 'mixing bowl', 'modem', 'moped', 
+    #     'graduation cap', 'mousetrap', 'obelisk', 'park bench', 'pedestal', 'pickup truck', 'pirate ship', 
+    #     'purse', 'fishing casting reel', 'rocking chair', 'rotisserie', 'safety pin', 'sarong', 'balaclava ski mask', 
+    #     'slide rule', 'stretcher', 'front curtain', 'throne', 'tile roof', 'tripod', 'hot tub', 'vacuum cleaner', 
+    #     'window screen', 'airplane wing', 'cabbage', 'cauliflower', 'pineapple', 'carbonara', 'chocolate syrup', 
+    #     'gyromitra', 'stinkhorn mushroom']
     new_classes = [
-        'American robin', 'Gila monster', 'eastern hog-nosed snake', 'garter snake', 'green mamba', 
-        'European garden spider', 'lorikeet', 'goose', 'rock crab', 'fiddler crab', 'American lobster', 
+        'Robin', 'Gila monster', 'hognose snake', 'garter snake', 'green mamba', 
+        'garden spider', 'lorikeet', 'goose', 'rock crab', 'fiddler crab', 'American lobster', 
         'little blue heron', 'American coot', 'Chihuahua', 'Shih Tzu', 'Papillon', 'toy terrier', 
-        'Treeing Walker Coonhound', 'English foxhound', 'borzoi', 'Saluki', 'American Staffordshire Terrier', 
-        'Chesapeake Bay Retriever', 'Vizsla', 'Kuvasz', 'Komondor', 'Rottweiler', 'Dobermann', 'Boxer', 
-        'Great Dane', 'Standard Poodle', 'Mexican hairless dog (xoloitzcuintli)', 'coyote', 'African wild dog', 
-        'red fox','tabby cat', 'meerkat', 'dung beetle', 'stick insect', 'leafhopper', 'hare', 'wild boar', 
-        'gibbon', 'langur', 'ambulance', 'baluster handrail', 'bassinet', 'boathouse', 'poke bonnet', 
-        'bottle cap', 'car wheel', 'bell or wind chime', 'movie theater', 'cocktail shaker', 'computer keyboard', 
-        'Dutch oven', 'football helmet', 'gas mask or respirator', 'hard disk drive', 'harmonica', 'honeycomb', 
-        'clothes iron', 'jeans', 'lampshade', 'laptop computer', 'milk can', 'mixing bowl', 'modem', 'moped', 
-        'graduation cap', 'mousetrap', 'obelisk', 'park bench', 'pedestal', 'pickup truck', 'pirate ship', 
-        'purse', 'fishing casting reel', 'rocking chair', 'rotisserie', 'safety pin', 'sarong', 'balaclava ski mask', 
-        'slide rule', 'stretcher', 'front curtain', 'throne', 'tile roof', 'tripod', 'hot tub', 'vacuum cleaner', 
-        'window screen', 'airplane wing', 'cabbage', 'cauliflower', 'pineapple', 'carbonara', 'chocolate syrup', 
-        'gyromitra', 'stinkhorn mushroom']
+        'Walker hound', 'English foxhound', 'borzoi', 'Saluki', 'American Staffordshire Terrier', 
+        'Chesapeake Bay Retriever', 'Vizsla', 'Kuvasz', 'Komondor', 'Rottweiler', 'Doberman', 'Boxer', 
+        'Great Dane', 'Standard Poodle', 'Mexican hairless', 'coyote', 'African hunting dog', 
+        'red fox','tabby', 'meerkat', 'dung beetle', 'walking stick', 'leafhopper', 'hare', 'wild boar', 
+        'gibbon', 'langur', 'ambulance', 'bannister', 'bassinet', 'boathouse', 'bonnet', 
+        'bottlecap', 'car wheel', 'chime', 'cinema', 'cocktail shaker', 'computer keyboard', 
+        'Dutch oven', 'football helmet', 'gasmask', 'hard disc', 'harmonica', 'honeycomb', 
+        'iron', 'jean', 'lampshade', 'laptop', 'milk can', 'mixing bowl', 'modem', 'moped', 
+        'shower cap', 'mousetrap', 'obelisk', 'park bench', 'pedestal', 'pickup', 'pirate', 
+        'purse', 'reel', 'rocking chair', 'rotisserie', 'safety pin', 'sarong', 'ski mask', 'slide rule', 'stretcher', 'theater curtain', 'throne', 'tile roof', 'tripod', 'tub', 'vacuum', 'window screen', 'wing', 'head cabbage', 'cauliflower', 'pineapple', 'carbonara', 'chocolate sauce', 'gyromitra', 'mushroom']
+
 
     def __init__(self, root, transform=None,train=True):
         split = 'train' if train else 'val'

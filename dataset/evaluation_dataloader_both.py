@@ -10,6 +10,7 @@ from torch.utils.data import Sampler
 from .imagenet import imagenet
 from .imagenet100 import imagenet100
 from .cifar import *
+# from .CUB200 import Cub2011
 import torchvision.datasets as dset
 import torchvision.transforms as transforms
 try:
@@ -52,7 +53,8 @@ class IncrementalDataset:
 
     def __init__(
         self,
-        dataset_name,
+        dataset1_name,
+        dataset2_name,
         args,
         random_order=False,
         shuffle=True,
@@ -62,19 +64,27 @@ class IncrementalDataset:
         increment=10,
         validation_split=0.
     ):
-        self.dataset_name = dataset_name.lower().strip() #小写，减去空白
-        datasets = _get_datasets(dataset_name)
-        self.train_transforms = datasets[0].train_transforms 
-        self.common_transforms = datasets[0].common_transforms
+        self.dataset1_name = dataset1_name.lower().strip() #小写，减去空白
+        datasets_1 = _get_datasets(dataset1_name)
+        self.dataset2_name = dataset2_name.lower().strip() #小写，减去空白
+        datasets_2 = _get_datasets(dataset2_name)
+        self.train_transforms_1 = datasets_1[0].train_transforms 
+        self.common_transforms_1 = datasets_1[0].common_transforms
+        self.train_transforms_2 = datasets_2[0].train_transforms 
+        self.common_transforms_2 = datasets_2[0].common_transforms
         try:
-            self.meta_transforms = datasets[0].meta_transforms
+            self.meta_transforms_1 = datasets_1[0].meta_transforms
+            self.meta_transforms_2 = datasets_2[0].meta_transforms
         except:
-            self.meta_transforms = datasets[0].train_transforms
+            self.meta_transforms_1 = datasets_1[0].train_transforms
+            self.meta_transforms_2 = datasets_2[0].train_transforms
         self.args = args
         
         self._setup_data(
-            datasets,
-            args.root,
+            datasets_1,
+            datasets_2,
+            args.root_1,
+            args.root_2,
             random_order=random_order,
             seed=seed,
             increment=increment,
@@ -96,8 +106,6 @@ class IncrementalDataset:
     def get_same_index(self, target, label, mode="train", memory=None):
         label_indices = []
         label_targets = []
-
-        # pdb.set_trace()
 
         for i in range(len(target)):
             if int(target[i]) in label:
@@ -145,42 +153,57 @@ class IncrementalDataset:
         return list(label_indices), label_targets
     
 
-    def new_task(self, memory=None):
+    def new_task(self, ses, memory=None):
         # import pdb;pdb.set_trace()
+        self._current_task = ses
         print(self._current_task)
         print(self.increments)      #classed per task
         min_class = sum(self.increments[:self._current_task])
         max_class = sum(self.increments[:self._current_task + 1])
+        pdb.set_trace()
 #         if(self.args.overflow):
 #             min_class = 0
 #             max_class = sum(self.increments)
+        # self.train_dataset_targets = self.train_dataset_2.targets + self.train_dataset_1.targets
+        # self.test_dataset_targets = self.test_dataset_1.targets + self.test_dataset_2.targets
+        train_indices_1, for_memory = self.get_same_index(self.train_dataset_1.targets, list(range(min_class, max_class)), mode="train", memory=memory)
+        test_indices_1, _ = self.get_same_index_test_chunk(self.test_dataset_1.targets, list(range(max_class)), mode="test")
+        if max_class<sum(self.increments)/2 :
+            train_indices_2 = None
+            test_indices_2 = None
+        else:
+            train_indices_2, for_memory = self.get_same_index(self.train_dataset_2.targets, list(range(min_class-int(sum(self.increments)/2), max_class-int(sum(self.increments)/2))), mode="train", memory=memory)
+            test_indices_2, _ = self.get_same_index_test_chunk(self.test_dataset_2.targets, list(range(max_class-int(sum(self.increments)/2))), mode="test")
         
-        train_indices, for_memory = self.get_same_index(self.train_dataset.targets, list(range(min_class, max_class)), mode="train", memory=memory)
-        test_indices, _ = self.get_same_index_test_chunk(self.test_dataset.targets, list(range(max_class)), mode="test")
-        # pdb.set_trace()
-        class_name = self.train_dataset.get_classes()
+
+        
+        pdb.set_trace()
+        class_name_1 = self.train_dataset_1.get_classes()
+        class_name_2 = self.train_dataset_2.get_classes()
+        class_name = class_name_1 + class_name_2
         test_class = class_name[:max_class]
         class_name = class_name[min_class:max_class]
         
 
-        self.train_data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=self._batch_size,shuffle=False,num_workers=8, sampler=SubsetRandomSampler(train_indices, True))
-        self.test_data_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=self.args.test_batch,shuffle=False,num_workers=8, sampler=SubsetRandomSampler(test_indices, False))
-
+        self.train_data_loader = torch.utils.data.DataLoader(self.train_dataset_1, batch_size=self._batch_size,shuffle=False,num_workers=8, sampler=SubsetRandomSampler(train_indices_1, True))
+        self.test_data_loader_1 = torch.utils.data.DataLoader(self.test_dataset_1, batch_size=self.args.test_batch,shuffle=False,num_workers=8, sampler=SubsetRandomSampler(test_indices_1, False))
+        if max_class<sum(self.increments)/2 :
+           self.test_data_loader_2 = None
+        else:
+            self.test_data_loader_2 = torch.utils.data.DataLoader(self.test_dataset_2, batch_size=self.args.test_batch,shuffle=False,num_workers=8, sampler=SubsetRandomSampler(test_indices_2, False))
         
         task_info = {
             "min_class": min_class,
             "max_class": max_class,
             "task": self._current_task,
             "max_task": len(self.increments),
-            "n_train_data": len(train_indices),
-            "n_test_data": len(test_indices)
+            "n_train_data": len(train_indices_1)+len(train_indices_2),
+            "n_test_data": len(test_indices_1)+len(test_indices_2)
         }
 
         self._current_task += 1
 
-        return task_info, self.train_data_loader, class_name, test_class, self.test_data_loader, self.test_data_loader, for_memory
-    
-     
+        return task_info, self.train_data_loader, class_name, test_class, self.test_data_loader_1, self.test_data_loader_2, for_memory
         
     # for verification   
     def get_galary(self, task, batch_size=10):
@@ -198,9 +221,7 @@ class IncrementalDataset:
             
         data_loader = torch.utils.data.DataLoader(self.train_dataset, batch_size=batch_size, shuffle=False, num_workers=4, sampler=SubsetRandomSampler(indexes, False))
     
-        return data_loader
-    
-    
+        return data_loader 
     def get_custom_loader_idx(self, indexes, mode="train", batch_size=10, shuffle=True):
      
         if(mode=="train"):
@@ -208,9 +229,7 @@ class IncrementalDataset:
         else: 
             data_loader = torch.utils.data.DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, sampler=SubsetRandomSampler(indexes, False))
     
-        return data_loader
-    
-    
+        return data_loader   
     def get_custom_loader_class(self, class_id, mode="train", batch_size=10, shuffle=False):
         
         if(mode=="train"):
@@ -222,77 +241,70 @@ class IncrementalDataset:
             
         return data_loader
 
-    def _setup_data(self, datasets, path, random_order=False, seed=1, increment=10, validation_split=0.):
+    def _setup_data(self, datasets_1, datasets_2, path_1, path_2, random_order=False, seed=1, increment=10, validation_split=0.):
         self.increments = []
         self.class_order = []
         
-        trsf_train = transforms.Compose(self.train_transforms)
-        try:
-            trsf_mata = transforms.Compose(self.meta_transforms)
-        except:
-            trsf_mata = transforms.Compose(self.train_transforms)
+        trsf_train_1 = transforms.Compose(self.train_transforms_1)
+        trsf_train_2 = transforms.Compose(self.train_transforms_2)
+        # try:
+        #     trsf_mata = transforms.Compose(self.meta_transforms)
+        # except:
+        #     trsf_mata = transforms.Compose(self.train_transforms)
             
-        trsf_test = transforms.Compose(self.common_transforms)
+        trsf_test_1 = transforms.Compose(self.common_transforms_1)
+        trsf_test_2 = transforms.Compose(self.common_transforms_2)
         
         current_class_idx = 0  # When using multiple datasets
-        for dataset in datasets:
-            if(self.dataset_name=="imagenet"or self.dataset_name=="imagenet100"):
-                train_dataset = dataset.base_dataset(root=path, train=True, transform=trsf_train)
-                test_dataset = dataset.base_dataset(root=path, train=False, transform=trsf_test)
-                # traindir = os.path.join(path, 'train')
-                # validdir = os.path.join(path, 'val')
-                # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-                # train_dataset = dset.ImageFolder(
-                #     traindir,
-                #     transforms.Compose([
-                #         transforms.RandomResizedCrop(224),
-                #         transforms.RandomHorizontalFlip(),
-                #         transforms.ColorJitter(
-                #             brightness=0.4,
-                #             contrast=0.4,
-                #             saturation=0.4,
-                #             hue=0.2),
-                #         transforms.ToTensor(),
-                #         normalize,
-                #     ]))
-                # test_dataset = dset.ImageFolder(
-                #     validdir,
-                #     transforms.Compose([
-                #         transforms.Resize(256),
-                #         transforms.CenterCrop(224),
-                #         transforms.ToTensor(),
-                #         normalize,
-                #     ]))
+        for dataset_1 in datasets_1:
+            if(self.dataset1_name=="imagenet" or self.dataset1_name=="imagenet100"):
+                train_dataset_1 = dataset_1.base_dataset(root=path_1, train=True, transform=trsf_train_1)
+                test_dataset_1 = dataset_1.base_dataset(root=path_1, train=False, transform=trsf_test_1)
                 
-            elif(self.dataset_name=="cub200" or self.dataset_name=="cifar100" or self.dataset_name=="mnist"  or self.dataset_name=="caltech101"  or self.dataset_name=="omniglot"  or self.dataset_name=="celeb"):
+            elif(self.dataset1_name=="cub200" or self.dataset1_name=="cifar100" or self.dataset1_name=="mnist"  or self.dataset1_name=="caltech101"  or self.dataset1_name=="omniglot"  or self.dataset1_name=="celeb"):
                 # pdb.set_trace()
-                train_dataset = dataset.base_dataset(root=path, train=True, transform=trsf_train)
-                test_dataset = dataset.base_dataset(root=path, train=False, transform=trsf_test)
+                train_dataset_1 = dataset_1.base_dataset(root=path_1, train=True, transform=trsf_train_1)
+                test_dataset_1 = dataset_1.base_dataset(root=path_1, train=False, transform=trsf_test_1)
 
-            elif(self.dataset_name=="svhn"):
-                train_dataset = dataset.base_dataset(root=path, split='train', transform=trsf_train)
-                test_dataset = dataset.base_dataset(root=path, split='test', transform=trsf_test)
-                train_dataset.targets = train_dataset.labels
-                test_dataset.targets = test_dataset.labels
+        for dataset_2 in datasets_2:
+            if(self.dataset1_name=="imagenet" or self.dataset1_name=="imagenet100"):
+                train_dataset_2 = dataset_2.base_dataset(root=path_2, train=True, transform=trsf_train_2)
+                test_dataset_2 = dataset_2.base_dataset(root=path_2, train=False, transform=trsf_test_2)
                 
+            elif(self.dataset1_name=="cub200" or self.dataset1_name=="cifar100" or self.dataset1_name=="mnist"  or self.dataset1_name=="caltech101"  or self.dataset1_name=="omniglot"  or self.dataset1_name=="celeb"):
+                # pdb.set_trace()
+                train_dataset_2 = dataset_2.base_dataset(root=path_2, train=True, transform=trsf_train_2)
+                test_dataset_2 = dataset_2.base_dataset(root=path_2, train=False, transform=trsf_test_2)
                 
-            order = [i for i in range(self.args.num_class)]
-            if random_order:
-                random.seed(seed)  
-                random.shuffle(order)
-            elif dataset.class_order is not None:
-                order = dataset.class_order
-                
-            for i,t in enumerate(train_dataset.targets):
-                train_dataset.targets[i] = order[t]
-            for i,t in enumerate(test_dataset.targets):
-                test_dataset.targets[i] = order[t]
-            self.class_order.append(order)
+        order = [i for i in range(self.args.num_class)]
+        if random_order:
+            # pdb.set_trace()
+            random.seed(seed)  
+            random.shuffle(order)
+        elif dataset_1.class_order is not None:
+            # pdb.set_trace()
+            order_1 = dataset_1.class_order
+            order_2 = dataset_2.class_order
+            self.class_order.append(order_1)
+            self.class_order.append(order_2)
+            
+        for i,t in enumerate(train_dataset_1.targets):
+            train_dataset_1.targets[i] = order[t]
+        for i,t in enumerate(test_dataset_1.targets):
+            test_dataset_1.targets[i] = order[t]
+        for i,t in enumerate(train_dataset_2.targets):
+            train_dataset_2.targets[i] = order[t]
+        for i,t in enumerate(test_dataset_2.targets):
+            test_dataset_2.targets[i] = order[t]
+        
+        # pdb.set_trace()
+        self.increments = [increment for _ in range(len(order)// increment)]
 
-            self.increments = [increment for _ in range(len(order) // increment)]
+        self.train_dataset_1 = train_dataset_1
+        self.train_dataset_2 = train_dataset_2
+        self.test_dataset_1 = test_dataset_1
+        self.test_dataset_2 = test_dataset_2
 
-        self.train_dataset = train_dataset
-        self.test_dataset = test_dataset
 
     @staticmethod
     def _map_new_class_index(y, order):
@@ -331,29 +343,29 @@ class IncrementalDataset:
         print(len(self._data_memory))
         return list(self._data_memory.astype("int32")), list(self._targets_memory.astype("int32"))
     
-def _get_datasets(dataset_names):
-    return [_get_dataset(dataset_name) for dataset_name in dataset_names.split("-")]
+def _get_datasets(dataset1_names):
+    return [_get_dataset(dataset1_name) for dataset1_name in dataset1_names.split("-")]
 
 
-def _get_dataset(dataset_name):
-    dataset_name = dataset_name.lower().strip()
+def _get_dataset(dataset1_name):
+    dataset1_name = dataset1_name.lower().strip()
 
-    if dataset_name == "cifar10":
+    if dataset1_name == "cifar10":
         return iCIFAR10
-    elif dataset_name == "cifar100":
+    elif dataset1_name == "cifar100":
         return iCIFAR100
-    elif dataset_name == "imagenet":
+    elif dataset1_name == "imagenet":
         return iIMAGENET
-    elif dataset_name == "imagenet100":
+    elif dataset1_name == "imagenet100":
         return iIMAGENET100
-    elif dataset_name == "cub200":
-        return iCUB200
-    elif dataset_name == "mnist":
-        return iMNIST
+    # elif dataset1_name == "cub200":
+    #     return iCUB200
+    # elif dataset1_name == "mnist":
+    #     return iMNIST
 
     
     else:
-        raise NotImplementedError("Unknown dataset {}.".format(dataset_name))
+        raise NotImplementedError("Unknown dataset {}.".format(dataset1_name))
 
 class DataHandler:
     base_dataset = None
@@ -452,7 +464,7 @@ class iIMAGENET100(DataHandler):
 
     
 # class iMNIST(DataHandler):
-#     base_dataset = mnist
-#     train_transforms = [ transforms.Resize(224),transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,)) ]
-#     common_transforms = [transforms.Resize(224),transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+#     base_dataset = dset.MNIST
+#     train_transforms = [ transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,)) ]
+#     common_transforms = [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
 
